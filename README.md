@@ -1,35 +1,66 @@
 # Financial Stress Prediction
 
-A leakage-aware tabular machine-learning pipeline for the **Zindi Financial Stress Prediction Challenge (August 2026)**.
+Leakage-aware tabular machine learning for the **Zindi Financial Stress Prediction Challenge (August 2026)**.
 
-The task is probabilistic binary classification: estimate whether a mobile-money user snapshot will experience liquidity stress in the next 30 days.
+The task is probabilistic binary classification: predict whether a mobile-money user snapshot will experience liquidity stress in the next 30 days.
 
-This repository is a cleaned portfolio version of the project. It focuses on the modeling, validation, feature engineering, calibration, and reproducibility work rather than the internal experiment-control archive used during the competition.
+## Highlights
 
-## Problem
+- 40,000 labeled rows, 30,000 test rows, 182 predictors
+- exact latent structure: 10,000 profile groups with 4 Train + 3 Test rows each
+- deployment-aware four-fold out-of-fold validation plus group-disjoint stress testing
+- target-free temporal and cross-channel feature engineering
+- XGBoost + CatBoost + LightGBM seed ensemble
+- leakage-safe nested probability calibration
+- grouped uncertainty analysis and systematic negative-result tracking
+- final public Zindi Multi Score: **0.721714257**
 
-The official data contain:
+## Data structure
 
-- **40,000** labeled training rows
-- **30,000** test rows
-- **182** predictors
-- **15%** positive-class prevalence in Train
+The predictor matrix contains:
+
 - **29 temporal feature families × 6 monthly observations**
-- **8** profile/activity fields
+- **8 profile/activity fields**
+- **15%** positive-class prevalence in Train
 
-A structural audit revealed **10,000 latent profile groups**, each containing exactly **4 Train + 3 Test rows**. The pair `arpu + x_90_d_activity_rate` is sufficient to reconstruct those groups exactly.
+A structural audit revealed an exact latent grouping. The pair
 
-That structure materially affects validation. Random row splits alone would not be an adequate robustness check.
+```text
+arpu + x_90_d_activity_rate
+```
 
-## Approach
+reconstructs all **10,000 latent profile groups** exactly, with four labeled Train rows and three unlabeled Test rows per group.
 
-The final production system combined three complementary gradient-boosting components:
+That structure materially affects validation: random row splits alone are not a sufficient robustness check.
+
+## Validation
+
+Two validation worlds were used.
+
+### Construction-slot OOF
+
+Each of the four labeled positions within every latent group is held out once. This gives complete four-fold OOF predictions while preserving the deployment-like fact that the same profile groups appear in Train and Test.
+
+### Group-disjoint stress
+
+Entire latent groups are separated between training and validation folds. This tests whether model quality survives without repeated profiles.
+
+The final raw ensemble remained stable across both worlds:
+
+| Validation world | ROC-AUC | Log Loss | Brier |
+|---|---:|---:|---:|
+| Construction-slot OOF | **0.910899** | **0.246023** | **0.073947** |
+| Group-disjoint OOF | **0.911080** | **0.245812** | **0.073865** |
+
+## Model
+
+The production system combines three gradient-boosting components:
 
 1. **XGBoost** on engineered temporal and cross-channel features
-2. **CatBoost** on the same core representation with native categorical handling
-3. **LightGBM** on an augmented representation containing derivative-direction features
+2. **CatBoost** on the core representation with native categorical handling
+3. **LightGBM** on an augmented derivative-direction representation
 
-Each model family was trained with three fixed random seeds:
+Each family is trained with three fixed random seeds:
 
 ```text
 20260911
@@ -37,67 +68,18 @@ Each model family was trained with three fixed random seeds:
 20260923
 ```
 
-The seed-averaged components were blended equally:
+Predictions are averaged within each family and then blended equally:
 
 ```text
 prediction =
     (xgboost_mean + catboost_mean + sign_lightgbm_mean) / 3
 ```
 
-A leakage-safe nested calibration stage compared no calibration, Platt scaling, and beta calibration. Beta calibration was selected for the production system.
-
-## Validation design
-
-Two validation worlds were treated separately:
-
-### Primary: construction-slot OOF
-
-The four labeled rows inside each latent profile group occupy four exact construction slots. Each slot was held out once, giving four complete OOF folds while preserving the deployment-like fact that the same profile groups appear in Train and Test.
-
-### Stress test: group-disjoint OOF
-
-Entire latent profile groups were separated between train and validation folds. This deliberately removes same-group information and tests whether model ranking survives a harder generalization regime.
-
-Small improvements were treated cautiously and were checked across folds, seeds, grouped bootstrap replicates, calibration variants, and the group-disjoint stress world.
-
-## Results
-
-### Final raw ensemble
-
-| Validation world | ROC-AUC | Log Loss | Brier |
-|---|---:|---:|---:|
-| Construction-slot OOF | **0.910899** | **0.246023** | **0.073947** |
-| Group-disjoint OOF | **0.911080** | **0.245812** | **0.073865** |
-
-### Calibration
-
-| Method | ROC-AUC | Log Loss | Brier |
-|---|---:|---:|---:|
-| None | 0.910899 | 0.246023 | 0.073947 |
-| Platt | 0.910877 | 0.244113 | 0.073654 |
-| **Beta** | **0.910837** | **0.244022** | **0.073638** |
-
-The project later audited the working composite objective as:
-
-```text
-score = 0.6 + 0.4 * AUC - (0.6 / 0.595) * LogLoss
-```
-
-Under that formula, beta calibration improved the construction-slot score from approximately **0.71627** to **0.71826**.
-
-### Public leaderboard
-
-The final production submission based on this pipeline achieved a public Zindi Multi Score of:
-
-```text
-0.721714257
-```
-
-The public leaderboard score was treated as external evidence, not as a hyperparameter-tuning target.
+The final feature representation contains **963 core engineered features** plus **145 derivative-direction features**.
 
 ## Feature engineering
 
-The feature layer is entirely target-free. It includes:
+The feature layer is target-free and includes:
 
 - six-month mean, standard deviation, min/max, median and IQR
 - recent-vs-old contrasts
@@ -110,19 +92,35 @@ The feature layer is entirely target-free. It includes:
 - balance-to-activity and outflow-to-inflow log ratios
 - derivative-direction counts and recent/old direction states
 
-The final representation used **963 core engineered features** plus **145 derivative-direction features**.
+## Calibration
 
-## Why the validation structure mattered
+The competition rewards both ranking quality and probability quality, so calibration was evaluated explicitly.
 
-The dataset is not ordinary i.i.d. tabular data:
+| Method | ROC-AUC | Log Loss | Brier |
+|---|---:|---:|---:|
+| None | 0.910899 | 0.246023 | 0.073947 |
+| Platt | 0.910877 | 0.244113 | 0.073654 |
+| **Beta** | **0.910837** | **0.244022** | **0.073638** |
 
-- each latent profile group appears four times in Train and three times in Test;
-- the same 10,000 groups occur in the same order in both sets;
-- profile features are constant within group;
-- dynamic features vary substantially within group;
-- target persistence within group is negligible.
+Calibration was fitted with nested model refits so the calibrator training probabilities were independent of each outer validation fold.
 
-This meant the project needed both deployment-like same-group validation and a stricter group-disjoint stress test.
+The late-stage metric audit used:
+
+```text
+score = 0.6 + 0.4 * AUC - (0.6 / 0.595) * LogLoss
+```
+
+Under that objective, beta calibration improved the construction-slot score from approximately **0.71627** to **0.71826**.
+
+## Public leaderboard
+
+The final production submission achieved:
+
+```text
+Zindi Multi Score: 0.721714257
+```
+
+Leaderboard feedback was treated as external evidence rather than a hyperparameter-tuning target.
 
 ## Repository layout
 
@@ -142,7 +140,6 @@ This meant the project needed both deployment-like same-group validation and a s
 │   └── train_oof.py
 ├── src/
 │   └── financial_stress/
-│       ├── __init__.py
 │       ├── calibration.py
 │       ├── features.py
 │       ├── metrics.py
@@ -152,36 +149,37 @@ This meant the project needed both deployment-like same-group validation and a s
     └── test_metrics.py
 ```
 
-## Reproducibility
+## Reproduce the OOF pipeline
 
-Competition data are intentionally not committed.
-
-Place the official files under:
+Competition data are not committed. Place the official files at:
 
 ```text
 data/raw/Train.csv
 data/raw/Test.csv
 ```
 
-Then install the project and run:
+Install the package and run:
 
 ```bash
 pip install -e .
-python scripts/train_oof.py --train data/raw/Train.csv --output results/oof_predictions.csv
+python scripts/train_oof.py \
+  --train data/raw/Train.csv \
+  --output results/oof_predictions.csv
 ```
 
-The training script reconstructs the latent profile groups from the two exact fingerprint fields and evaluates the final raw ensemble with four construction-slot folds.
+The script reconstructs the latent profile groups and evaluates the raw production ensemble with four construction-slot folds.
 
-The strict competition pipeline used a deeper nested refit for calibration; see [`docs/methodology.md`](docs/methodology.md).
+The competition run used a deeper nested calibration procedure; see [`docs/methodology.md`](docs/methodology.md).
+
+## Experiment discipline
+
+Late-stage model families became highly correlated, so experiments were evaluated for **conditional information**, not just standalone accuracy. Several approaches were rejected after weak or non-replicating gains, including RealMLP, xRFM, TabDPT, a temporal residual network, a latent PCA/copula residual model, and foundation-model variants.
+
+See [`docs/experiments.md`](docs/experiments.md) for the compact failure ledger and [`docs/methodology.md`](docs/methodology.md) for validation and calibration details.
 
 ## Notes
 
-- No external feature dataset is used.
-- `ID` is treated as an opaque submission identifier, not a predictive feature.
-- Raw challenge data are excluded from Git.
-- Public leaderboard feedback was not used to choose validation splits or tune model parameters.
-- Experimental dead ends are summarized in [`docs/experiments.md`](docs/experiments.md).
-
-## Original project
-
-The full private research archive contains the complete experiment history, negative results, manifests, checksums, and execution evidence. This public repository intentionally presents the stable technical core in a conventional software/research layout.
+- no external feature dataset is used
+- `ID` is treated as an opaque submission identifier, not a predictive feature
+- raw challenge data and large model artifacts are excluded from Git
+- reported metrics come from stored competition experiment outputs
