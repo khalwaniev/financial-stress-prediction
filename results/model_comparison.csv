@@ -1,0 +1,3 @@
+system,n,auc,logloss,brier,notes
+previous_xgb_cat_equal_blend,30000,0.9068942396514161,0.2507201912673744,0.07538931745871988,protected inner construction OOF
+xgb_cat_sign_lgbm_equal_blend,30000,0.9072199477124183,0.25034319423588974,0.07531854404655701,protected inner construction OOF

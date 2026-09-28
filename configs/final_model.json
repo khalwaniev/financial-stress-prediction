@@ -1,0 +1,53 @@
+{
+  "model": "equal_blend_seed_ensemble",
+  "seeds": [
+    20260911,
+    20260917,
+    20260923
+  ],
+  "blend": {
+    "xgboost": 0.3333333333333333,
+    "catboost": 0.3333333333333333,
+    "sign_lightgbm": 0.3333333333333333
+  },
+  "xgboost": {
+    "n_estimators": 350,
+    "learning_rate": 0.04,
+    "max_depth": 5,
+    "min_child_weight": 10.0,
+    "subsample": 0.9,
+    "colsample_bytree": 0.85,
+    "reg_lambda": 5.0,
+    "reg_alpha": 0.05,
+    "gamma": 0.0,
+    "max_bin": 256
+  },
+  "catboost": {
+    "iterations": 250,
+    "learning_rate": 0.05,
+    "depth": 6,
+    "l2_leaf_reg": 5.0,
+    "random_strength": 0.5,
+    "subsample": 0.9,
+    "rsm": 0.8,
+    "border_count": 64
+  },
+  "sign_lightgbm": {
+    "n_estimators": 300,
+    "learning_rate": 0.04,
+    "num_leaves": 15,
+    "min_child_samples": 100,
+    "subsample": 0.9,
+    "colsample_bytree": 0.85,
+    "reg_alpha": 0.1,
+    "reg_lambda": 5.0
+  },
+  "calibration_candidates": [
+    "none",
+    "platt",
+    "beta"
+  ],
+  "selected_calibration": "beta",
+  "primary_validation": "construction_slot_4fold",
+  "stress_validation": "group_disjoint_4fold"
+}

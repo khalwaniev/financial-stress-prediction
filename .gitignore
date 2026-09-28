@@ -1,0 +1,29 @@
+# data
+data/raw/
+*.csv.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+
+# model artifacts
+*.cbm
+*.ubj
+*.pkl
+*.joblib
+models/
+artifacts/
+
+# outputs
+results/oof_predictions.csv
+results/submission.csv
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
